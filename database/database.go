@@ -5,26 +5,21 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 type Message struct {
-	ID          uint   `gorm:"primarykey"`
-	TopicID     int64  `gorm:"not null"`
-	TopicTitle  string `gorm:"not null"`
-	MessageID   int    `gorm:"not null"`
-	MessageText string `gorm:"type:text"`
+	ID          uint `gorm:"primaryKey"`
+	MessageID   int  `gorm:"not null"`
+	MessageText string
 	MediaType   string `gorm:"size:50"`
-	MediaFileID string `gorm:"type:text"`
-	UserID      int64
-	UserName    string
+	MediaFileID string
 	CreatedAt   time.Time
 	Status      string `gorm:"default:'pending'"`
 	ChannelID   int64
 }
 
 type Admin struct {
-	ID       uint  `gorm:"primarykey"`
+	ID       uint  `gorm:"primaryKey"`
 	UserID   int64 `gorm:"uniqueIndex;not null"`
 	UserName string
 }
@@ -48,9 +43,7 @@ func NewDatabase() (*Database, error) {
 }
 
 func (d *Database) SaveMessage(msg *Message) error {
-	return d.db.Clauses(clause.OnConflict{
-		UpdateAll: true,
-	}).Create(msg).Error
+	return d.db.Create(msg).Error
 }
 
 func (d *Database) GetPendingMessages() ([]Message, error) {
@@ -64,21 +57,17 @@ func (d *Database) UpdateMessageStatus(messageID int, status string) error {
 }
 
 func (d *Database) DeleteMessage(messageID int) error {
-	return d.db.Where("message_id = ?", messageID).Delete(&Message{}).Error
+	return d.db.Delete(&Message{}, &Message{MessageID: messageID}).Error
 }
 
-func (d *Database) GetMessageByID(messageID int) (*Message, error) {
+func (d *Database) GetMessageByID(messageID int) (Message, error) {
 	var message Message
-	err := d.db.Where("message_id = ?", messageID).First(&message).Error
-	if err != nil {
-		return nil, err
-	}
-	return &message, nil
+	err := d.db.First(&message, &Message{MessageID: messageID}).Error
+	return message, err
 }
 
 func (d *Database) IsAdmin(userID int64) bool {
-	var admin Admin
-	err := d.db.Where("user_id = ?", userID).First(&admin).Error
+	err := d.db.First(&Admin{}, &Admin{UserID: userID}).Error
 	return err == nil
 }
 

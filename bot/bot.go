@@ -10,7 +10,6 @@ import (
 	th "github.com/mymmrac/telego/telegohandler"
 )
 
-// Bot представляет основную структуру бота
 type Bot struct {
 	bot        *telego.Bot
 	db         *database.Database
@@ -19,7 +18,6 @@ type Bot struct {
 	ownerID    int64
 }
 
-// NewBot создает новый экземпляр бота
 func NewBot(token string, channelID, ownerID int64) (*Bot, error) {
 	bot, err := telego.NewBot(token)
 	if err != nil {
@@ -38,13 +36,11 @@ func NewBot(token string, channelID, ownerID int64) (*Bot, error) {
 		ownerID:   ownerID,
 	}
 
-	// Автоматически добавляем владельца как администратора
 	botInstance.initializeOwner()
 
 	return botInstance, nil
 }
 
-// initializeOwner добавляет владельца как администратора
 func (b *Bot) initializeOwner() {
 	if !b.db.IsAdmin(b.ownerID) {
 		err := b.db.AddAdmin(b.ownerID, "vstor08")
@@ -56,7 +52,6 @@ func (b *Bot) initializeOwner() {
 	}
 }
 
-// Start запускает бота
 func (b *Bot) Start() {
 	updates, err := b.bot.UpdatesViaLongPolling(nil)
 	if err != nil {
@@ -78,7 +73,6 @@ func (b *Bot) Start() {
 	log.Println("🤖 Бот-предложка запущен! Принимает анонимные предложения в ЛС")
 }
 
-// Stop останавливает бота
 func (b *Bot) Stop() {
 	if b.botHandler != nil {
 		b.botHandler.Stop()
@@ -87,23 +81,33 @@ func (b *Bot) Stop() {
 	log.Println("Бот остановлен")
 }
 
-// registerHandlers регистрирует обработчики
 func (b *Bot) registerHandlers(bh *th.BotHandler) {
-	// Создаем обработчики
+
 	mediaHandler := handlers.NewMediaHandler(b.db)
 	proposalsHandler := handlers.NewProposalsHandler(b.db, mediaHandler, b.channelID, b.ownerID)
 	moderationHandler := handlers.NewModerationHandler(b.db, mediaHandler, b.channelID, b.ownerID)
 	adminHandler := handlers.NewAdminHandler(b.db, b.ownerID)
 
-	// Регистрируем обработчики команд
 	bh.Handle(proposalsHandler.HandleStartCommand, th.CommandEqual("start"))
 	bh.Handle(moderationHandler.HandleProposalsCommand, th.CommandEqual("proposals"))
 	bh.Handle(adminHandler.HandleAddAdminCommand, th.CommandEqual("addadmin"))
 	bh.Handle(adminHandler.HandleListAdminsCommand, th.CommandEqual("admins"))
 
-	// Обработчик callback запросов
 	bh.Handle(moderationHandler.HandleCallback, th.AnyCallbackQuery())
 
-	// Обработчик ВСЕХ сообщений в ЛС от не-админов (предложения)
 	bh.Handle(proposalsHandler.HandleUserProposal, th.AnyMessage())
 }
+
+// people, please don't post weird/innapropiote stuff, some people are just trying to ⠀⠀⠀⠀⠀⠀⠀⣠⣤⣤⣤⣤⣤⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+// ⠀⠀⠀⠀⠀⢰⡿⠋⠁⠀⠀⠈⠉⠙⠻⣷⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+// ⠀⠀⠀⠀⢀⣿⠇⠀⢀⣴⣶⡾⠿⠿⠿⢿⣿⣦⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+// ⠀⠀⣀⣀⣸⡿⠀⠀⢸⣿⣇⠀⠀⠀⠀⠀⠀⠙⣷⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+// ⠀⣾⡟⠛⣿⡇⠀⠀⢸⣿⣿⣷⣤⣤⣤⣤⣶⣶⣿⠇⠀⠀⠀⠀⠀⠀⠀⣀⠀⠀
+// ⢀⣿⠀⢀⣿⡇⠀⠀⠀⠻⢿⣿⣿⣿⣿⣿⠿⣿⡏⠀⠀⠀⠀⢴⣶⣶⣿⣿⣿⣆
+// ⢸⣿⠀⢸⣿⡇⠀⠀⠀⠀⠀⠈⠉⠁⠀⠀⠀⣿⡇⣀⣠⣴⣾⣮⣝⠿⠿⠿⣻⡟
+// ⢸⣿⠀⠘⣿⡇⠀⠀⠀⠀⠀⠀⠀⣠⣶⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠁⠉⠀
+// ⠸⣿⠀⠀⣿⡇⠀⠀⠀⠀⠀⣠⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠟⠉⠀⠀⠀⠀
+// ⠀⠻⣷⣶⣿⣇⠀⠀⠀⢠⣼⣿⣿⣿⣿⣿⣿⣿⣛⣛⣻⠉⠁⠀⠀⠀⠀⠀⠀⠀
+// ⠀⠀⠀⠀⢸⣿⠀⠀⠀⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡇⠀⠀⠀⠀⠀⠀⠀⠀
+// ⠀⠀⠀⠀⢸⣿⣀⣀⣀⣼⡿⢿⣿⣿⣿⣿⣿⡿⣿⣿⡿⠀⠀⠀⠀⠀⠀⠀⠀⠀
+// ⠀⠀⠀⠀⠀⠙⠛⠛⠛⠋⠁⠀⠙⠻⠿⠟⠋⠑⠛⠋⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀spread this message to help! ♡

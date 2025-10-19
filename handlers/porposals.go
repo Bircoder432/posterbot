@@ -11,6 +11,24 @@ import (
 	tu "github.com/mymmrac/telego/telegoutil"
 )
 
+const welcomeText = `🤖 Добро пожаловать в анонимную предложку!
+
+Просто отправьте сюда ваше предложение, идею или сообщение, и оно будет анонимно рассмотрено модераторами.
+
+Ваша личность будет скрыта - модераторы увидят только содержание вашего сообщения.
+
+❓ Что можно отправлять:
+• Текстовые предложения
+• Фотографии
+• Документы
+• Видео
+• Кружочки (видеосообщения)
+• Аудио и голосовые сообщения
+• Стикеры
+• Идеи и пожелания
+
+Ваше предложение будет рассмотрено в ближайшее время!`
+
 type ProposalsHandler struct {
 	db        *database.Database
 	media     *MediaHandler
@@ -60,14 +78,10 @@ func (p *ProposalsHandler) HandleUserProposal(bot *telego.Bot, update telego.Upd
 	messageText := p.media.ExtractMessageText(msg)
 
 	message := &database.Message{
-		TopicID:     userID,
-		TopicTitle:  fmt.Sprintf("Аноним %d", userID),
 		MessageID:   msg.MessageID,
 		MessageText: messageText,
 		MediaType:   mediaType,
 		MediaFileID: mediaFileID,
-		UserID:      0,
-		UserName:    "Аноним",
 		CreatedAt:   time.Now(),
 		Status:      "pending",
 		ChannelID:   p.channelID,
@@ -117,14 +131,6 @@ func (p *ProposalsHandler) notifyAdminsAboutNewProposal(bot *telego.Bot, message
 			log.Printf("Ошибка отправки уведомления администратору %d: %v", admin.UserID, err)
 		}
 	}
-
-	_, err = bot.SendMessage(tu.Message(
-		tu.ID(p.ownerID),
-		notification,
-	))
-	if err != nil {
-		log.Printf("Ошибка отправки уведомления владельцу: %v", err)
-	}
 }
 
 func (p *ProposalsHandler) HandleStartCommand(bot *telego.Bot, update telego.Update) {
@@ -141,7 +147,6 @@ func (p *ProposalsHandler) HandleStartCommand(bot *telego.Bot, update telego.Upd
 	if p.db.IsAdmin(userID) || userID == p.ownerID {
 
 		var messageText string
-		var keyboard telego.ReplyMarkup
 
 		if userID == p.ownerID {
 			messageText = "👑 Панель владельца\n\nЭто бот для анонимных предложений. Пользователи присылают предложения в ЛС, а вы их модерируете.\n\n" +
@@ -149,48 +154,18 @@ func (p *ProposalsHandler) HandleStartCommand(bot *telego.Bot, update telego.Upd
 				"/addadmin <ID> - добавить администратора\n" +
 				"/admins - список администраторов\n" +
 				"/proposals - просмотр предложений"
-			keyboard = tu.Keyboard(
-				tu.KeyboardRow(
-					tu.KeyboardButton("📨 Сообщения из предложки"),
-				),
-				tu.KeyboardRow(
-					tu.KeyboardButton("👥 Управление админами"),
-				),
-			).WithResizeKeyboard()
+
 		} else {
 			messageText = "🛠️ Панель модератора\n\nЭто бот для анонимных предложений. Пользователи присылают предложения в ЛС, а вы их модерируете.\n\n" +
 				"Доступные команды:\n" +
 				"/proposals - просмотр предложений"
-			keyboard = tu.Keyboard(
-				tu.KeyboardRow(
-					tu.KeyboardButton("📨 Сообщения из предложки"),
-				),
-			).WithResizeKeyboard()
 		}
 
 		bot.SendMessage(tu.Message(
 			tu.ID(chatID),
 			messageText,
-		).WithReplyMarkup(keyboard))
+		))
 	} else {
-
-		welcomeText := `🤖 Добро пожаловать в анонимную предложку!
-
-Просто отправьте сюда ваше предложение, идею или сообщение, и оно будет анонимно рассмотрено модераторами.
-
-Ваша личность будет скрыта - модераторы увидят только содержание вашего сообщения.
-
-❓ Что можно отправлять:
-• Текстовые предложения
-• Фотографии
-• Документы
-• Видео
-• Кружочки (видеосообщения)
-• Аудио и голосовые сообщения
-• Стикеры
-• Идеи и пожелания
-
-Ваше предложение будет рассмотрено в ближайшее время!`
 
 		bot.SendMessage(tu.Message(
 			tu.ID(chatID),

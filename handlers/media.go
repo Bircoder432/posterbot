@@ -20,7 +20,7 @@ func NewMediaHandler(db *database.Database) *MediaHandler {
 
 // GetMediaInfo определяет тип медиа и file_id
 func (m *MediaHandler) GetMediaInfo(msg *telego.Message) (string, string) {
-	if msg.Photo != nil && len(msg.Photo) > 0 {
+	if len(msg.Photo) > 0 {
 		return "photo", msg.Photo[len(msg.Photo)-1].FileID
 	}
 	if msg.Document != nil {
@@ -148,7 +148,7 @@ func (m *MediaHandler) SendMediaForModeration(bot *telego.Bot, chatID int64, mes
 	return nil
 }
 
-func (m *MediaHandler) PublishMedia(bot *telego.Bot, channelID int64, message *database.Message) error {
+func (m *MediaHandler) PublishMedia(bot *telego.Bot, channelID int64, message database.Message) error {
 	var sendErr error
 
 	switch message.MediaType {
