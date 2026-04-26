@@ -10,7 +10,6 @@ RUN go mod download
 
 COPY . .
 
-# Собираем бинарник с уникальным именем
 RUN go build -o posterbot
 
 # --- Финальный образ ---
@@ -20,11 +19,10 @@ RUN apk add --no-cache sqlite ca-certificates
 
 WORKDIR /app
 
-# Копируем бинарник
 COPY --from=builder /app/posterbot /app/posterbot
-
-# Делаем исполняемым
 RUN chmod +x /app/posterbot
 
-# Точка входа
+# Порт для webhook-сервера
+EXPOSE 8080
+
 CMD ["/app/posterbot"]
