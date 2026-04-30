@@ -38,35 +38,21 @@ func (m *ModerationHandler) HandleProposalsCommand(bot *telego.Bot, update teleg
 
 func (m *ModerationHandler) ShowProposals(bot *telego.Bot, chatID int64, userID int64) {
 	if !m.db.IsAdmin(userID) && userID != m.ownerID {
-		bot.SendMessage(tu.Message(
-			tu.ID(chatID),
-			"❌ У вас нет доступа к этой функции.",
-		))
+		bot.SendMessage(tu.Message(tu.ID(chatID), "❌ Нет доступа."))
 		return
 	}
 
 	messages, err := m.db.GetPendingMessages()
 	if err != nil {
-		bot.SendMessage(tu.Message(
-			tu.ID(chatID),
-			"❌ Ошибка при получении предложений: "+err.Error(),
-		))
+		bot.SendMessage(tu.Message(tu.ID(chatID), "❌ Ошибка: "+err.Error()))
 		return
 	}
-
 	if len(messages) == 0 {
-		bot.SendMessage(tu.Message(
-			tu.ID(chatID),
-			"✅ Нет новых предложений для модерации.",
-		))
+		bot.SendMessage(tu.Message(tu.ID(chatID), "✅ Нет новых предложений."))
 		return
 	}
 
-	bot.SendMessage(tu.Message(
-		tu.ID(chatID),
-		fmt.Sprintf("📨 Найдено %d предложений для модерации:", len(messages)),
-	))
-
+	bot.SendMessage(tu.Message(tu.ID(chatID), fmt.Sprintf("📨 Найдено %d предложений:", len(messages))))
 	m.SendMessageForModeration(bot, chatID, messages[0])
 }
 
@@ -75,25 +61,14 @@ func (m *ModerationHandler) SendMessageForModeration(bot *telego.Bot, chatID int
 		return
 	}
 
-	text := fmt.Sprintf(
-		"📨 Анонимное предложение #%d\n\n"+
-			"⏰ Время: %s\n\n"+
-			"Выберите действие:",
-		message.MessageID,
-		message.CreatedAt.Format("02.01.2006 15:04"),
-	)
-
-	keyboard := tu.InlineKeyboard(
+	text := fmt.Sprintf("📨 Предложение #%d\n⏰ %s\n\nВыберите действие:", message.ID, message.CreatedAt.Format("02.01.2006 15:04"))
+	kb := tu.InlineKeyboard(
 		tu.InlineKeyboardRow(
-			tu.InlineKeyboardButton("✅ ОДОБРИТЬ").WithCallbackData(fmt.Sprintf("approve_%d", message.MessageID)),
-			tu.InlineKeyboardButton("❌ ОТКЛОНИТЬ").WithCallbackData(fmt.Sprintf("reject_%d", message.MessageID)),
+			tu.InlineKeyboardButton("✅ ОДОБРИТЬ").WithCallbackData(fmt.Sprintf("approve_%d", message.ID)),
+			tu.InlineKeyboardButton("❌ ОТКЛОНИТЬ").WithCallbackData(fmt.Sprintf("reject_%d", message.ID)),
 		),
 	)
-
-	bot.SendMessage(tu.Message(
-		tu.ID(chatID),
-		text,
-	).WithReplyMarkup(keyboard))
+	bot.SendMessage(tu.Message(tu.ID(chatID), text).WithReplyMarkup(kb))
 }
 
 func (m *ModerationHandler) HandlePardonCommand(bot *telego.Bot, update telego.Update) {
@@ -106,43 +81,27 @@ func (m *ModerationHandler) HandlePardonCommand(bot *telego.Bot, update telego.U
 	if !m.db.IsAdmin(senderID) && senderID != m.ownerID {
 		return
 	}
+
 	args := msg.Text
 	if len(args) < 12 {
-		bot.SendMessage(tu.Message(
-			tu.ID(msg.Chat.ID),
-			"📝 Использование: /pardon <BAN-ID>\n\n"+
-				"Пример: /pardon BAN-a1b2c3",
-		))
+		bot.SendMessage(tu.Message(tu.ID(msg.Chat.ID), "📝 /pardon <BAN-ID>"))
 		return
 	}
 	var banID string
 	_, err := fmt.Sscanf(args, "/pardon %s", &banID)
 	if err != nil || banID == "" {
-		bot.SendMessage(tu.Message(
-			tu.ID(msg.Chat.ID),
-			"❌ Неверный формат. Используйте: /pardon BAN-xxxxxx",
-		))
+		bot.SendMessage(tu.Message(tu.ID(msg.Chat.ID), "❌ Неверный формат."))
 		return
 	}
 	record, err := m.db.GetBanRecordByBanID(banID)
 	if err != nil {
-		bot.SendMessage(tu.Message(
-			tu.ID(msg.Chat.ID),
-			"❌ Бан-айди не найден или уже неактивен.",
-		))
+		bot.SendMessage(tu.Message(tu.ID(msg.Chat.ID), "❌ Бан не найден или уже снят."))
 		return
 	}
 	_ = m.db.PardonUser(record.UserID)
 	_ = m.db.PardonByBanID(banID)
-
-	_, err = bot.SendMessage(tu.Message(tu.ID(record.UserID), "✅ Ваш доступ восстановлен."))
-	if err != nil {
-		// Если не удалось отправить сообщение пользователю, просто игнорируем ошибку
-	}
-	bot.SendMessage(tu.Message(
-		tu.ID(msg.Chat.ID),
-		fmt.Sprintf("✅ Бан-айди %s деактивирован.", banID),
-	))
+	_, _ = bot.SendMessage(tu.Message(tu.ID(record.UserID), "✅ Ваш доступ восстановлен."))
+	bot.SendMessage(tu.Message(tu.ID(msg.Chat.ID), fmt.Sprintf("✅ Бан %s деактивирован.", banID)))
 }
 
 func (m *ModerationHandler) HandleCallback(bot *telego.Bot, update telego.Update) {
@@ -154,9 +113,7 @@ func (m *ModerationHandler) HandleCallback(bot *telego.Bot, update telego.Update
 	chatID := callback.Message.Chat.ID
 
 	if !m.db.IsAdmin(userID) && userID != m.ownerID {
-		bot.AnswerCallbackQuery(tu.CallbackQuery(
-			callback.ID,
-		).WithText("❌ У вас нет доступа."))
+		bot.AnswerCallbackQuery(tu.CallbackQuery(callback.ID).WithText("❌ Нет доступа."))
 		return
 	}
 
@@ -179,33 +136,33 @@ func (m *ModerationHandler) HandleCallback(bot *telego.Bot, update telego.Update
 
 func (m *ModerationHandler) HandleNext(bot *telego.Bot, chatID int64, callback *telego.CallbackQuery) {
 	m.ShowProposals(bot, chatID, callback.From.ID)
-	bot.AnswerCallbackQuery(tu.CallbackQuery(callback.ID).WithText("✅ Следующее"))
+	bot.AnswerCallbackQuery(tu.CallbackQuery(callback.ID).WithText("✅ Далее"))
 }
 
 func (m *ModerationHandler) HandleReason(bot *telego.Bot, chatID int64, senderID int, callback *telego.CallbackQuery) {
+	adminID := callback.From.ID
 	bot.SendMessage(tu.Message(tu.ID(chatID), "Введите причину отказа"))
-	_ = m.db.UpdateAdminState(chatID, "reason")
-	_ = m.db.UpdateAdminReason(chatID, int64(senderID))
+	_ = m.db.SetUserState(adminID, "reason", int64(senderID))
 	bot.AnswerCallbackQuery(tu.CallbackQuery(callback.ID).WithText("✅ Введите причину"))
 }
 
 func (m *ModerationHandler) HandleBanReason(bot *telego.Bot, chatID int64, senderID int, callback *telego.CallbackQuery) {
+	adminID := callback.From.ID
 	bot.SendMessage(tu.Message(tu.ID(chatID), "Введите причину блокировки"))
-	_ = m.db.UpdateAdminState(chatID, "ban_reason")
-	_ = m.db.UpdateAdminReason(chatID, int64(senderID))
+	_ = m.db.SetUserState(adminID, "ban_reason", int64(senderID))
 	bot.AnswerCallbackQuery(tu.CallbackQuery(callback.ID).WithText("✅ Введите причину"))
 }
 
 func (m *ModerationHandler) HandleApprove(bot *telego.Bot, chatID int64, messageID int, callback *telego.CallbackQuery) {
-	message, err := m.db.GetMessageByID(messageID)
+	message, err := m.db.GetMessageByID(uint(messageID))
 	if err != nil {
-		bot.AnswerCallbackQuery(tu.CallbackQuery(callback.ID).WithText("❌ Ошибка: предложение не найдено"))
+		bot.AnswerCallbackQuery(tu.CallbackQuery(callback.ID).WithText("❌ Не найдено"))
 		return
 	}
 
 	var replyToMsgID int
 	if message.ParentMessageID != nil {
-		parent, err := m.db.GetMessageByDBID(uint(*message.ParentMessageID))
+		parent, err := m.db.GetMessageByDBID(*message.ParentMessageID)
 		if err == nil && parent.ChannelMessageID != nil {
 			replyToMsgID = *parent.ChannelMessageID
 		}
@@ -213,32 +170,30 @@ func (m *ModerationHandler) HandleApprove(bot *telego.Bot, chatID int64, message
 
 	sentMsg, err := m.media.PublishMedia(bot, m.channelID, message, m.botUsername, replyToMsgID)
 	if err != nil {
-		bot.AnswerCallbackQuery(tu.CallbackQuery(callback.ID).WithText("❌ Ошибка при публикации"))
+		bot.AnswerCallbackQuery(tu.CallbackQuery(callback.ID).WithText("❌ Ошибка публикации"))
 		return
 	}
-
 	if sentMsg != nil {
 		_ = m.db.UpdateMessageChannelID(message.ID, sentMsg.MessageID)
 	}
 
-	_ = m.db.UpdateMessageStatus(messageID, "approved")
-
-	bot.AnswerCallbackQuery(tu.CallbackQuery(callback.ID).WithText("✅ Предложение опубликовано!"))
+	_ = m.db.UpdateMessageStatus(message.ID, "approved")
+	bot.AnswerCallbackQuery(tu.CallbackQuery(callback.ID).WithText("✅ Опубликовано!"))
 	_ = bot.DeleteMessage(&telego.DeleteMessageParams{ChatID: tu.ID(chatID), MessageID: callback.Message.MessageID})
 	m.ShowProposals(bot, chatID, callback.From.ID)
 }
 
 func (m *ModerationHandler) HandleReject(bot *telego.Bot, chatID int64, messageID int, callback *telego.CallbackQuery) {
-	msg, err := m.db.GetMessageByID(messageID)
+	msg, err := m.db.GetMessageByID(uint(messageID))
 	if err != nil {
-		bot.AnswerCallbackQuery(tu.CallbackQuery(callback.ID).WithText("❌ Ошибка: предложение не найдено"))
+		bot.AnswerCallbackQuery(tu.CallbackQuery(callback.ID).WithText("❌ Не найдено"))
 		return
 	}
 	senderID := msg.SenderID
-	_ = m.db.UpdateMessageStatus(messageID, "rejected")
-	_ = m.db.DeleteMessage(messageID)
+	_ = m.db.UpdateMessageStatus(msg.ID, "rejected")
+	_ = m.db.DeleteMessage(msg.ID)
 
-	bot.AnswerCallbackQuery(tu.CallbackQuery(callback.ID).WithText("✅ Предложение отклонено!"))
+	bot.AnswerCallbackQuery(tu.CallbackQuery(callback.ID).WithText("✅ Отклонено!"))
 	_ = bot.DeleteMessage(&telego.DeleteMessageParams{ChatID: tu.ID(chatID), MessageID: callback.Message.MessageID})
 
 	kb := tu.InlineKeyboard(

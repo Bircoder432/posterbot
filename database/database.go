@@ -23,25 +23,31 @@ type BanRecord struct {
 }
 
 type Message struct {
-	ID               uint `gorm:"primaryKey"`
-	SenderID         uint `gorm:"not null"`
-	MessageID        int  `gorm:"not null"`
-	MessageText      string
-	MediaType        string `gorm:"size:50"`
-	MediaFileID      string
-	CreatedAt        time.Time
-	Status           string `gorm:"default:'pending'"`
-	ChannelID        int64
-	ParentMessageID  *int `gorm:"default:null"`
-	ChannelMessageID *int `gorm:"default:null"`
+	ID                uint  `gorm:"primaryKey"`
+	ChatID            int64 `gorm:"index:idx_chat_msg,unique"`
+	TelegramMessageID int   `gorm:"index:idx_chat_msg,unique"`
+	SenderID          uint  `gorm:"not null"`
+	MessageText       string
+	MediaType         string `gorm:"size:50"`
+	MediaFileID       string
+	CreatedAt         time.Time
+	Status            string `gorm:"default:'pending'"`
+	ChannelID         int64
+	ParentMessageID   *uint `gorm:"default:null"`
+	ChannelMessageID  *int  `gorm:"default:null"`
 }
 
 type Admin struct {
 	ID       uint  `gorm:"primaryKey"`
 	UserID   int64 `gorm:"uniqueIndex;not null"`
 	UserName string
-	State    string `gorm:"default:'standart'"`
-	Reason   int64
+}
+
+// ✅ Новая таблица для временных состояний ЛЮБОГО пользователя
+type UserState struct {
+	UserID       int64  `gorm:"primaryKey"`
+	State        string `gorm:"default:'none'"`
+	TempTargetID int64  `gorm:"default:0"`
 }
 
 type Database struct {
@@ -57,7 +63,8 @@ func NewDatabase() (*Database, error) {
 		return nil, err
 	}
 
-	err = db.AutoMigrate(&Message{}, &Admin{}, &Banned{}, &BanRecord{})
+	// ✅ Добавили UserState в автомиграцию
+	err = db.AutoMigrate(&Message{}, &Admin{}, &Banned{}, &BanRecord{}, &UserState{})
 	if err != nil {
 		return nil, err
 	}
@@ -65,8 +72,34 @@ func NewDatabase() (*Database, error) {
 	return &Database{db: db}, nil
 }
 
+// ✅ Методы для работы с состояниями
+func (d *Database) SetUserState(userID int64, state string, targetID int64) error {
+	return d.db.Where(UserState{UserID: userID}).
+		Assign(UserState{State: state, TempTargetID: targetID}).
+		FirstOrCreate(&UserState{}).Error
+}
+
+func (d *Database) GetUserState(userID int64) (string, int64, error) {
+	var s UserState
+	err := d.db.First(&s, "user_id = ?", userID).Error
+	if err != nil {
+		return "none", 0, nil // Если записи нет - считаем состояние "none"
+	}
+	return s.State, s.TempTargetID, nil
+}
+
+func (d *Database) ClearUserState(userID int64) error {
+	return d.db.Where(UserState{UserID: userID}).Updates(UserState{State: "none", TempTargetID: 0}).Error
+}
+
 func (d *Database) SaveMessage(msg *Message) error {
 	return d.db.Create(msg).Error
+}
+
+func (d *Database) MessageExists(chatID int64, telegramMessageID int) bool {
+	var count int64
+	d.db.Model(&Message{}).Where("chat_id = ? AND telegram_message_id = ?", chatID, telegramMessageID).Count(&count)
+	return count > 0
 }
 
 func (d *Database) GetPendingMessages() ([]Message, error) {
@@ -75,25 +108,17 @@ func (d *Database) GetPendingMessages() ([]Message, error) {
 	return messages, err
 }
 
-func (d *Database) UpdateMessageStatus(messageID int, status string) error {
-	return d.db.Model(&Message{}).Where("message_id = ?", messageID).Update("status", status).Error
+func (d *Database) UpdateMessageStatus(dbMessageID uint, status string) error {
+	return d.db.Model(&Message{}).Where("id = ?", dbMessageID).Update("status", status).Error
 }
 
-func (d *Database) DeleteMessage(messageID int) error {
-	return d.db.Delete(&Message{}, &Message{MessageID: messageID}).Error
+func (d *Database) DeleteMessage(dbMessageID uint) error {
+	return d.db.Delete(&Message{}, dbMessageID).Error
 }
 
-func (d *Database) GetMessageSender(messageID int) (uint, error) {
-	msg, err := d.GetMessageByID(messageID)
-	if err != nil {
-		return 0, err
-	}
-	return msg.SenderID, nil
-}
-
-func (d *Database) GetMessageByID(messageID int) (Message, error) {
+func (d *Database) GetMessageByID(id uint) (Message, error) {
 	var message Message
-	err := d.db.First(&message, &Message{MessageID: messageID}).Error
+	err := d.db.First(&message, id).Error
 	return message, err
 }
 
@@ -104,12 +129,7 @@ func (d *Database) IsAdmin(userID int64) bool {
 }
 
 func (d *Database) AddAdmin(userID int64, userName string) error {
-	admin := Admin{
-		UserID:   userID,
-		UserName: userName,
-		State:    "standart",
-		Reason:   0,
-	}
+	admin := Admin{UserID: userID, UserName: userName}
 	return d.db.Create(&admin).Error
 }
 
@@ -117,27 +137,6 @@ func (d *Database) GetAdmin(userID int64) (Admin, error) {
 	var admin Admin
 	err := d.db.First(&admin, "user_id = ?", userID).Error
 	return admin, err
-}
-
-func (d *Database) UpdateAdminState(userID int64, state string) error {
-	return d.db.Model(&Admin{}).Where("user_id = ?", userID).Update("state", state).Error
-}
-
-func (d *Database) GetAdminState(userID int64) (string, error) {
-	admin, err := d.GetAdmin(userID)
-	if err != nil {
-		return "", err
-	}
-	return admin.State, nil
-}
-
-func (d *Database) UpdateAdminReason(userID int64, reason int64) error {
-	return d.db.Model(&Admin{}).Where("user_id = ?", userID).Update("reason", reason).Error
-}
-
-func (d *Database) GetAdminReason(userID int64) (int64, error) {
-	admin, err := d.GetAdmin(userID)
-	return admin.Reason, err
 }
 
 func (d *Database) RemoveAdmin(userID int64) error {
@@ -151,9 +150,7 @@ func (d *Database) GetAdmins() ([]Admin, error) {
 }
 
 func (d *Database) BanUser(userID int64) error {
-	banned := Banned{
-		ID: userID,
-	}
+	banned := Banned{ID: userID}
 	return d.db.Create(&banned).Error
 }
 
@@ -178,11 +175,7 @@ func (d *Database) GenerateBanID() string {
 
 func (d *Database) CreateBanRecord(userID int64, reason string) (string, error) {
 	banID := d.GenerateBanID()
-	record := BanRecord{
-		BanID:  banID,
-		UserID: userID,
-		Reason: reason,
-	}
+	record := BanRecord{BanID: banID, UserID: userID, Reason: reason}
 	if err := d.db.Create(&record).Error; err != nil {
 		return "", err
 	}

@@ -57,6 +57,20 @@ func (p *ProposalsHandler) HandleUserProposal(bot *telego.Bot, update telego.Upd
 	userID := msg.From.ID
 	chatID := msg.Chat.ID
 
+	// 🔥 ПРОВЕРКА ВРЕМЕННОГО СОСТОЯНИЯ (для ответов и админ-действий)
+	state, targetID, _ := p.db.GetUserState(userID)
+
+	if state == "reply_mode" {
+		p.handleReplyContent(bot, msg, userID, uint(targetID))
+		return
+	} else if state == "reason" {
+		p.handleSendReason(bot, msg, userID, targetID)
+		return
+	} else if state == "ban_reason" {
+		p.handleSendBanReason(bot, msg, userID, targetID)
+		return
+	}
+
 	if p.db.IsBanned(userID) {
 		bot.SendMessage(tu.Message(tu.ID(userID), "Вы заблокированы."))
 		return
@@ -73,49 +87,13 @@ func (p *ProposalsHandler) HandleUserProposal(bot *telego.Bot, update telego.Upd
 		return
 	}
 
-	if p.db.IsAdmin(userID) || userID == p.ownerID {
-		if state, _ := p.db.GetAdminState(userID); state == "reason" {
-			reasonUser, err := p.db.GetAdminReason(userID)
-			if err != nil {
-				return
-			}
-			bot.SendMessage(tu.Message(tu.ID(reasonUser), fmt.Sprintf("Ваше сообщение отклонено по причине: %s", msg.Text)))
-			kb := tu.InlineKeyboard(
-				tu.InlineKeyboardRow(
-					tu.InlineKeyboardButton("Далее").WithCallbackData("next"),
-				),
-			)
-			bot.SendMessage(tu.Message(tu.ID(msg.From.ID), "Причина отправлена").WithReplyMarkup(kb))
-			_ = p.db.UpdateAdminReason(userID, 0)
-			_ = p.db.UpdateAdminState(userID, "standart")
-			return
-		} else if state, _ := p.db.GetAdminState(userID); state == "ban_reason" {
-			reasonUser, err := p.db.GetAdminReason(userID)
-			if err != nil {
-				return
-			}
-			banID, err := p.db.CreateBanRecord(reasonUser, msg.Text)
-			if err != nil {
-				bot.SendMessage(tu.Message(tu.ID(reasonUser), "Ошибка при блокировке."))
-				_ = p.db.UpdateAdminReason(userID, 0)
-				_ = p.db.UpdateAdminState(userID, "standart")
-				return
-			}
-			_ = p.db.BanUser(reasonUser)
-			bot.SendMessage(tu.Message(tu.ID(reasonUser), fmt.Sprintf("Вы заблокированы. Код обращения: %s", banID)))
-			_ = p.db.UpdateAdminReason(userID, 0)
-			_ = p.db.UpdateAdminState(userID, "standart")
-			bot.SendMessage(tu.Message(tu.ID(chatID), "Пользователь успешно заблокирован."))
-			return
-		} else if state, _ := p.db.GetAdminState(userID); state == "reply_mode" {
-			p.handleReplyContent(bot, msg, userID)
-			return
-		}
-	}
-
 	if msg.Text == "" && msg.Photo == nil && msg.Document == nil &&
 		msg.Video == nil && msg.VideoNote == nil && msg.Audio == nil &&
 		msg.Voice == nil && msg.Sticker == nil {
+		return
+	}
+
+	if p.db.MessageExists(chatID, msg.MessageID) {
 		return
 	}
 
@@ -123,29 +101,23 @@ func (p *ProposalsHandler) HandleUserProposal(bot *telego.Bot, update telego.Upd
 	messageText := p.media.ExtractMessageText(msg)
 
 	message := &database.Message{
-		MessageID:   msg.MessageID,
-		SenderID:    uint(userID),
-		MessageText: messageText,
-		MediaType:   mediaType,
-		MediaFileID: mediaFileID,
-		CreatedAt:   time.Now(),
-		Status:      "pending",
-		ChannelID:   p.channelID,
+		ChatID:            chatID,
+		TelegramMessageID: msg.MessageID,
+		SenderID:          uint(userID),
+		MessageText:       messageText,
+		MediaType:         mediaType,
+		MediaFileID:       mediaFileID,
+		CreatedAt:         time.Now(),
+		Status:            "pending",
+		ChannelID:         p.channelID,
 	}
 
 	if err := p.db.SaveMessage(message); err != nil {
-		bot.SendMessage(tu.Message(
-			tu.ID(chatID),
-			"❌ Произошла ошибка при отправке предложения. Попробуйте позже.",
-		))
+		bot.SendMessage(tu.Message(tu.ID(chatID), "❌ Произошла ошибка при отправке предложения. Попробуйте позже."))
 		return
 	}
 
-	bot.SendMessage(tu.Message(
-		tu.ID(chatID),
-		"✅ Ваше предложение принято! Оно будет рассмотрено модераторами анонимно.",
-	))
-
+	bot.SendMessage(tu.Message(tu.ID(chatID), "✅ Ваше предложение принято! Оно будет рассмотрено модераторами анонимно."))
 	p.notifyAdminsAboutNewProposal(bot, message)
 }
 
@@ -169,142 +141,105 @@ func (p *ProposalsHandler) HandleStartCommand(bot *telego.Bot, update telego.Upd
 
 	if p.db.IsAdmin(userID) || userID == p.ownerID {
 		var messageText string
-
 		if userID == p.ownerID {
-			messageText = "👑 Панель владельца\n\nЭто бот для анонимных предложений. Пользователи присылают предложения в ЛС, а вы их модерируете.\n\n" +
-				"Доступные команды:\n" +
-				"/addadmin <ID> - добавить администратора\n" +
-				"/admins - список администраторов\n" +
-				"/banned - список блокировок\n" +
-				"/proposals - просмотр предложений\n" +
-				"/pardon <BAN-ID> - разбан по коду"
+			messageText = "👑 Панель владельца\n\nДоступные команды:\n/addadmin <ID>\n/admins\n/banned\n/proposals\n/pardon <BAN-ID>"
 		} else {
-			messageText = "🛠️ Панель модератора\n\nЭто бот для анонимных предложений. Пользователи присылают предложения в ЛС, а вы их модерируете.\n\n" +
-				"Доступные команды:\n" +
-				"/proposals - просмотр предложений"
+			messageText = "🛠️ Панель модератора\n\nДоступные команды:\n/proposals"
 		}
-
-		bot.SendMessage(tu.Message(
-			tu.ID(chatID),
-			messageText,
-		))
+		bot.SendMessage(tu.Message(tu.ID(chatID), messageText))
 	} else {
-		bot.SendMessage(tu.Message(
-			tu.ID(chatID),
-			welcomeText,
-		))
+		bot.SendMessage(tu.Message(tu.ID(chatID), welcomeText))
 	}
 }
 
 func (p *ProposalsHandler) handleReplyCommand(bot *telego.Bot, msg *telego.Message) {
 	args := strings.TrimSpace(strings.TrimPrefix(msg.Text, "/reply"))
 	if args == "" {
-		bot.SendMessage(tu.Message(
-			tu.ID(msg.Chat.ID),
-			"📝 Использование: /reply <ID_поста>\n\n"+
-				"Пример: /reply 12345",
-		))
+		bot.SendMessage(tu.Message(tu.ID(msg.Chat.ID), "📝 Использование: /reply <ID_поста>"))
 		return
 	}
-
 	parentID, err := strconv.Atoi(args)
 	if err != nil {
-		bot.SendMessage(tu.Message(
-			tu.ID(msg.Chat.ID),
-			"❌ Неверный формат ID поста.",
-		))
+		bot.SendMessage(tu.Message(tu.ID(msg.Chat.ID), "❌ Неверный формат ID поста."))
 		return
 	}
-
 	_, err = p.db.GetMessageByDBID(uint(parentID))
 	if err != nil {
-		bot.SendMessage(tu.Message(
-			tu.ID(msg.Chat.ID),
-			"❌ Пост не найден.",
-		))
+		bot.SendMessage(tu.Message(tu.ID(msg.Chat.ID), "❌ Пост не найден."))
 		return
 	}
 
-	_ = p.db.UpdateAdminState(msg.From.ID, "reply_mode")
-	_ = p.db.UpdateAdminReason(msg.From.ID, int64(parentID))
-
-	bot.SendMessage(tu.Message(
-		tu.ID(msg.Chat.ID),
-		"✍️ Отправьте ваш ответ на пост. Он будет отправлен на модерацию.",
-	))
+	_ = p.db.SetUserState(msg.From.ID, "reply_mode", int64(parentID))
+	bot.SendMessage(tu.Message(tu.ID(msg.Chat.ID), "✍️ Отправьте ваш ответ на пост."))
 }
 
 func (p *ProposalsHandler) handleDeepLinkReply(bot *telego.Bot, msg *telego.Message, parentIDStr string) {
 	parentID, err := strconv.Atoi(parentIDStr)
 	if err != nil {
-		bot.SendMessage(tu.Message(
-			tu.ID(msg.Chat.ID),
-			"❌ Неверная ссылка для ответа.",
-		))
+		bot.SendMessage(tu.Message(tu.ID(msg.Chat.ID), "❌ Неверная ссылка для ответа."))
 		return
 	}
-
 	_, err = p.db.GetMessageByDBID(uint(parentID))
 	if err != nil {
-		bot.SendMessage(tu.Message(
-			tu.ID(msg.Chat.ID),
-			"❌ Пост не найден.",
-		))
+		bot.SendMessage(tu.Message(tu.ID(msg.Chat.ID), "❌ Пост не найден."))
 		return
 	}
 
-	_ = p.db.UpdateAdminState(msg.From.ID, "reply_mode")
-	_ = p.db.UpdateAdminReason(msg.From.ID, int64(parentID))
-
-	bot.SendMessage(tu.Message(
-		tu.ID(msg.Chat.ID),
-		"✍️ Отправьте ваш ответ на пост. Он будет отправлен на модерацию.",
-	))
+	_ = p.db.SetUserState(msg.From.ID, "reply_mode", int64(parentID))
+	bot.SendMessage(tu.Message(tu.ID(msg.Chat.ID), "✍️ Отправьте ваш ответ на пост."))
 }
 
-func (p *ProposalsHandler) handleReplyContent(bot *telego.Bot, msg *telego.Message, userID int64) {
-	parentMsgID64, err := p.db.GetAdminReason(userID)
-	if err != nil {
-		bot.SendMessage(tu.Message(
-			tu.ID(msg.Chat.ID),
-			"❌ Произошла ошибка при получении информации о посте.",
-		))
+func (p *ProposalsHandler) handleReplyContent(bot *telego.Bot, msg *telego.Message, userID int64, parentID uint) {
+	if p.db.MessageExists(msg.Chat.ID, msg.MessageID) {
+		_ = p.db.ClearUserState(userID)
 		return
 	}
-	parentMsgID := int(parentMsgID64)
 
 	mediaType, mediaFileID := p.media.GetMediaInfo(msg)
 	messageText := p.media.ExtractMessageText(msg)
 
 	message := &database.Message{
-		MessageID:       msg.MessageID,
-		SenderID:        uint(userID),
-		MessageText:     messageText,
-		MediaType:       mediaType,
-		MediaFileID:     mediaFileID,
-		CreatedAt:       time.Now(),
-		Status:          "pending",
-		ChannelID:       p.channelID,
-		ParentMessageID: &parentMsgID,
+		ChatID:            msg.Chat.ID,
+		TelegramMessageID: msg.MessageID,
+		SenderID:          uint(userID),
+		MessageText:       messageText,
+		MediaType:         mediaType,
+		MediaFileID:       mediaFileID,
+		CreatedAt:         time.Now(),
+		Status:            "pending",
+		ChannelID:         p.channelID,
+		ParentMessageID:   &parentID,
 	}
 
 	if err := p.db.SaveMessage(message); err != nil {
-		bot.SendMessage(tu.Message(
-			tu.ID(msg.Chat.ID),
-			"❌ Произошла ошибка при отправке ответа. Попробуйте позже.",
-		))
+		bot.SendMessage(tu.Message(tu.ID(msg.Chat.ID), "❌ Ошибка при отправке ответа."))
+		_ = p.db.ClearUserState(userID)
 		return
 	}
 
-	_ = p.db.UpdateAdminState(userID, "standart")
-	_ = p.db.UpdateAdminReason(userID, 0)
-
-	bot.SendMessage(tu.Message(
-		tu.ID(msg.Chat.ID),
-		"✅ Ваш ответ принят! Он будет рассмотрен модераторами анонимно.",
-	))
-
+	_ = p.db.ClearUserState(userID)
+	bot.SendMessage(tu.Message(tu.ID(msg.Chat.ID), "✅ Ваш ответ принят!"))
 	p.notifyAdminsAboutNewProposal(bot, message)
+}
+
+func (p *ProposalsHandler) handleSendReason(bot *telego.Bot, msg *telego.Message, adminID int64, targetUserID int64) {
+	bot.SendMessage(tu.Message(tu.ID(targetUserID), fmt.Sprintf("Ваше сообщение отклонено по причине: %s", msg.Text)))
+	_ = p.db.ClearUserState(adminID)
+	bot.SendMessage(tu.Message(tu.ID(msg.Chat.ID), "✅ Причина отправлена."))
+}
+
+func (p *ProposalsHandler) handleSendBanReason(bot *telego.Bot, msg *telego.Message, adminID int64, targetUserID int64) {
+	banID, err := p.db.CreateBanRecord(targetUserID, msg.Text)
+	if err != nil {
+		bot.SendMessage(tu.Message(tu.ID(msg.Chat.ID), "❌ Ошибка при блокировке."))
+		_ = p.db.ClearUserState(adminID)
+		return
+	}
+	_ = p.db.BanUser(targetUserID)
+	_ = p.db.ClearUserState(adminID)
+
+	bot.SendMessage(tu.Message(tu.ID(targetUserID), fmt.Sprintf("Вы заблокированы. Код обращения: %s", banID)))
+	bot.SendMessage(tu.Message(tu.ID(msg.Chat.ID), "✅ Пользователь заблокирован."))
 }
 
 func (p *ProposalsHandler) notifyAdminsAboutNewProposal(bot *telego.Bot, message *database.Message) {
@@ -314,20 +249,10 @@ func (p *ProposalsHandler) notifyAdminsAboutNewProposal(bot *telego.Bot, message
 	}
 
 	notification := fmt.Sprintf(
-		"📨 Поступило новое анонимное предложение!\n\n"+
-			"ID Предложения: %d\n\n"+
-			"💬 Текст: %s\n"+
-			"📁 Тип: %s\n\n"+
-			"Используйте /proposals для просмотра всех предложений.",
-		message.ID,
-		message.MessageText,
-		message.MediaType,
+		"📨 Новое предложение!\n\nID: %d\n💬 %s\n📁 Тип: %s\n\n/proposals",
+		message.ID, message.MessageText, message.MediaType,
 	)
-
 	for _, admin := range admins {
-		_, _ = bot.SendMessage(tu.Message(
-			tu.ID(admin.UserID),
-			notification,
-		))
+		_, _ = bot.SendMessage(tu.Message(tu.ID(admin.UserID), notification))
 	}
 }
